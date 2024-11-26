@@ -10,9 +10,15 @@ mod eth_utils;
 mod headers;
 mod utils;
 
-use headers::create_l1_headers;
+use headers::{create_l1_headers, create_l2_headers};
 
 pub use eth_utils::EthSigner;
+
+#[derive(Debug, Deserialize)]
+struct ApiKeysResponse {
+    #[serde(rename = "apiKeys")]
+    api_keys: Vec<String>,
+}
 
 #[derive(Default, Debug, Serialize, Deserialize)]
 pub struct ApiCreds {
@@ -27,6 +33,7 @@ pub struct ClobClient {
     host: String,
     signer: Option<Box<dyn EthSigner>>,
     chain_id: Option<u64>,
+    api_creds: Option<ApiCreds>,
 }
 
 impl ClobClient {
@@ -44,13 +51,38 @@ impl ClobClient {
                     .expect("Invalid private key"),
             )),
             chain_id: Some(chain_id),
+            api_creds: None,
         }
+    }
+
+    pub fn with_l2_headers(host: &str, key: &str, chain_id: u64, api_creds: ApiCreds) -> Self {
+        Self {
+            host: host.to_owned(),
+            signer: Some(Box::new(
+                key.parse::<PrivateKeySigner>()
+                    .expect("Invalid private key"),
+            )),
+            chain_id: Some(chain_id),
+            api_creds: Some(api_creds),
+        }
+    }
+
+    pub fn set_api_creds(&mut self, api_creds: ApiCreds) {
+        self.api_creds = Some(api_creds);
     }
 
     fn get_l1_parameters(&self) -> (&impl EthSigner, u64) {
         let signer = self.signer.as_ref().expect("Signer is not set");
         let chain_id = self.chain_id.expect("Chain id is not set");
         (signer, chain_id)
+    }
+
+    fn get_l2_parameters(&self) -> (&impl EthSigner, &ApiCreds) {
+        let signer = self.signer.as_ref().expect("Signer is not set");
+        (
+            signer,
+            self.api_creds.as_ref().expect("API credentials not set."),
+        )
     }
 
     pub fn get_address(&self) -> Option<String> {
@@ -80,7 +112,7 @@ impl ClobClient {
             .parse::<u64>()?;
         Ok(resp)
     }
-
+    // TODO: handle nonce
     pub fn create_api_key(&self) -> ClientResult<ApiCreds> {
         let (signer, _) = self.get_l1_parameters();
 
@@ -101,6 +133,28 @@ impl ClobClient {
         let req = headers.iter().fold(req, |r, (k, v)| r.set(k, v));
 
         Ok(req.call()?.into_json::<ApiCreds>()?)
+    }
+
+    pub fn create_or_derive_api_key(&self) -> ClientResult<ApiCreds> {
+        let creds = self.create_api_key();
+        if creds.is_err() {
+            return self.derive_api_key();
+        }
+        creds
+    }
+
+    pub fn get_api_keys(&self) -> ClientResult<Vec<String>> {
+        let endpoint = "/auth/api-keys";
+        let (signer, creds) = self.get_l2_parameters();
+        let headers = create_l2_headers(signer, creds, "GET", endpoint, None)?;
+
+        let req = headers
+            .iter()
+            .fold(get(&format!("{}{endpoint}", &self.host)), |r, (k, v)| {
+                r.set(k, v)
+            });
+
+        Ok(req.call()?.into_json::<ApiKeysResponse>()?.api_keys)
     }
 }
 #[cfg(test)]
