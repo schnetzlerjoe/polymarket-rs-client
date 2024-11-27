@@ -6,19 +6,19 @@ use alloy_primitives::U256;
 use anyhow::Result;
 use std::collections::HashMap;
 
-const POLY_ADDR_HEADER: &str = "POLY_ADDRESS";
-const POLY_SIG_HEADER: &str = "POLY_SIGNATURE";
-const POLY_TS_HEADER: &str = "POLY_TIMESTAMP";
-const POLY_NONCE_HEADER: &str = "POLY_NONCE";
-const POLY_API_KEY_HEADER: &str = "POLY_API_KEY";
-const POLY_PASS_HEADER: &str = "POLY_PASSPHRASE";
+const POLY_ADDR_HEADER: &str = "poly_address";
+const POLY_SIG_HEADER: &str = "poly_signature";
+const POLY_TS_HEADER: &str = "poly_timestamp";
+const POLY_NONCE_HEADER: &str = "poly_nonce";
+const POLY_API_KEY_HEADER: &str = "poly_api_key";
+const POLY_PASS_HEADER: &str = "poly_passphrase";
 
+//TODO: Heapless for maps!
 type Headers = HashMap<&'static str, String>;
 
 pub fn create_l1_headers(signer: &impl EthSigner, nonce: Option<U256>) -> Result<Headers> {
     let timestamp = get_current_unix_time_secs().to_string();
-
-    let nonce = nonce.unwrap_or(U256::from_be_slice(&[0]));
+    let nonce = nonce.unwrap_or(U256::from_str_radix("0", 2).expect("0 is not valid uint"));
     let signature = sign_clob_auth_message(signer, timestamp.clone(), nonce)?;
     let address = encode_prefixed(signer.address().as_slice());
 
