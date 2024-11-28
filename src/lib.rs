@@ -37,6 +37,21 @@ pub struct PriceResponse {
     pub price: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct SpreadResponse {
+    pub spread: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TickSizeResponse {
+    pub tick_size: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct NegRiskResponse {
+    pub neg_risk: bool,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, Hash, Eq, PartialEq)]
 pub enum Side {
     BUY,
@@ -270,7 +285,7 @@ impl ClobClient {
             .json::<PriceResponse>()
             .await?)
     }
-
+    // TODO: tests
     pub async fn get_prices(
         &self,
         book_params: &[BookParams],
@@ -293,5 +308,57 @@ impl ClobClient {
             .await?
             .json::<HashMap<String, HashMap<Side, String>>>()
             .await?)
+    }
+
+    pub async fn get_spread(&self, token_id: &str) -> ClientResult<SpreadResponse> {
+        Ok(self
+            .http_client
+            .get(format!("{}/spread", &self.host))
+            .query(&[("token_id", token_id)])
+            .send()
+            .await?
+            .json::<SpreadResponse>()
+            .await?)
+    }
+
+    pub async fn get_spreads(&self, token_ids: &[String]) -> ClientResult<HashMap<String, String>> {
+        let v = token_ids
+            .iter()
+            .map(|b| HashMap::from([("token_id", b.clone())]))
+            .collect::<Vec<HashMap<&str, String>>>();
+
+        Ok(self
+            .http_client
+            .post(format!("{}/spreads", &self.host))
+            .json(&v)
+            .send()
+            .await?
+            .json::<HashMap<String, String>>()
+            .await?)
+    }
+
+    //TODO: create tick size response struct, cache?
+
+    pub async fn get_tick_size(&self, token_id: &str) -> ClientResult<HashMap<String, String>> {
+        Ok(self
+            .http_client
+            .get(format!("{}/tick-size", &self.host))
+            .query(&[("token_id", token_id)])
+            .send()
+            .await?
+            .json::<HashMap<String, String>>()
+            .await?)
+    }
+    // Cache
+    pub async fn get_neg_risk(&self, token_id: &str) -> ClientResult<bool> {
+        Ok(self
+            .http_client
+            .get(format!("{}/neg-risk", &self.host))
+            .query(&[("token_id", token_id)])
+            .send()
+            .await?
+            .json::<NegRiskResponse>()
+            .await?
+            .neg_risk)
     }
 }
