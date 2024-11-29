@@ -7,6 +7,7 @@ use reqwest::header::HeaderName;
 use reqwest::Client;
 use reqwest::Method;
 use reqwest::RequestBuilder;
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -29,22 +30,25 @@ struct ApiKeysResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct MidpointResponse {
-    pub mid: String,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub mid: Decimal,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct PriceResponse {
-    pub price: String,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub price: Decimal,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct SpreadResponse {
-    pub spread: String,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub spread: Decimal,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct TickSizeResponse {
-    pub tick_size: bool,
+    pub minimum_tick_size: Decimal,
 }
 
 #[derive(Debug, Deserialize)]
@@ -258,7 +262,7 @@ impl ClobClient {
     pub async fn get_midpoints(
         &self,
         token_ids: &[String],
-    ) -> ClientResult<HashMap<String, String>> {
+    ) -> ClientResult<HashMap<String, Decimal>> {
         let v = token_ids
             .iter()
             .map(|b| HashMap::from([("token_id", b.clone())]))
@@ -270,7 +274,7 @@ impl ClobClient {
             .json(&v)
             .send()
             .await?
-            .json::<HashMap<String, String>>()
+            .json::<HashMap<String, Decimal>>()
             .await?)
     }
 
@@ -285,11 +289,10 @@ impl ClobClient {
             .json::<PriceResponse>()
             .await?)
     }
-    // TODO: tests
     pub async fn get_prices(
         &self,
         book_params: &[BookParams],
-    ) -> ClientResult<HashMap<String, HashMap<Side, String>>> {
+    ) -> ClientResult<HashMap<String, HashMap<Side, Decimal>>> {
         let v = book_params
             .iter()
             .map(|b| {
@@ -306,7 +309,7 @@ impl ClobClient {
             .json(&v)
             .send()
             .await?
-            .json::<HashMap<String, HashMap<Side, String>>>()
+            .json::<HashMap<String, HashMap<Side, Decimal>>>()
             .await?)
     }
 
@@ -321,7 +324,10 @@ impl ClobClient {
             .await?)
     }
 
-    pub async fn get_spreads(&self, token_ids: &[String]) -> ClientResult<HashMap<String, String>> {
+    pub async fn get_spreads(
+        &self,
+        token_ids: &[String],
+    ) -> ClientResult<HashMap<String, Decimal>> {
         let v = token_ids
             .iter()
             .map(|b| HashMap::from([("token_id", b.clone())]))
@@ -333,21 +339,21 @@ impl ClobClient {
             .json(&v)
             .send()
             .await?
-            .json::<HashMap<String, String>>()
+            .json::<HashMap<String, Decimal>>()
             .await?)
     }
 
-    //TODO: create tick size response struct, cache?
-
-    pub async fn get_tick_size(&self, token_id: &str) -> ClientResult<HashMap<String, String>> {
+    // cache
+    pub async fn get_tick_size(&self, token_id: &str) -> ClientResult<Decimal> {
         Ok(self
             .http_client
             .get(format!("{}/tick-size", &self.host))
             .query(&[("token_id", token_id)])
             .send()
             .await?
-            .json::<HashMap<String, String>>()
-            .await?)
+            .json::<TickSizeResponse>()
+            .await?
+            .minimum_tick_size)
     }
     // Cache
     pub async fn get_neg_risk(&self, token_id: &str) -> ClientResult<bool> {
