@@ -17,6 +17,7 @@ mod config;
 mod data;
 mod eth_utils;
 mod headers;
+mod orders;
 mod utils;
 
 pub use data::*;
@@ -112,7 +113,7 @@ impl ClobClient {
             .http_client
             .request(method, format!("{}{endpoint}", &self.host));
 
-        Gheaders.fold(req, |r, (k, v)| r.header(HeaderName::from_static(k), v))
+        headers.fold(req, |r, (k, v)| r.header(HeaderName::from_static(k), v))
     }
 
     pub async fn get_ok(&self) -> bool {

@@ -1821,6 +1821,7 @@ dependencies = [
  "anyhow",
  "base64",
  "hmac",
+ "rand",
  "reqwest",
  "rust_decimal",
  "serde",

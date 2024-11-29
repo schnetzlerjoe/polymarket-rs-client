@@ -15,7 +15,7 @@ pub struct OrderArgs {
 
 #[derive(Debug)]
 pub struct OrderExtras {
-    pub fee_rate_bps: i32,
+    pub fee_rate_bps: u32,
     pub nonce: U256,
     pub expiration: u64,
     pub taker: String,
@@ -74,8 +74,8 @@ pub struct NegRiskResponse {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, Hash, Eq, PartialEq)]
 pub enum Side {
-    BUY,
-    SELL,
+    BUY = 0,
+    SELL = 1,
 }
 
 impl Side {
