@@ -18,7 +18,7 @@ type Headers = HashMap<&'static str, String>;
 
 pub fn create_l1_headers(signer: &impl EthSigner, nonce: Option<U256>) -> Result<Headers> {
     let timestamp = get_current_unix_time_secs().to_string();
-    let nonce = nonce.unwrap_or(U256::from_str_radix("0", 2).expect("0 is not valid uint"));
+    let nonce = nonce.unwrap_or(U256::ZERO);
     let signature = sign_clob_auth_message(signer, timestamp.clone(), nonce)?;
     let address = encode_prefixed(signer.address().as_slice());
 

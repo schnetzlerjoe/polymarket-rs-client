@@ -1,89 +1,27 @@
 use alloy_primitives::hex::encode_prefixed;
 pub use alloy_primitives::U256;
 use alloy_signer_local::PrivateKeySigner;
-pub use anyhow::{Context, Result as ClientResult};
+pub use anyhow::{anyhow, Context, Result as ClientResult};
 use config::get_contract_config;
 use reqwest::header::HeaderName;
 use reqwest::Client;
 use reqwest::Method;
 use reqwest::RequestBuilder;
-use rust_decimal::Decimal;
-use serde::{Deserialize, Serialize};
+pub use rust_decimal::Decimal;
 use std::collections::HashMap;
 
 #[cfg(test)]
 mod tests;
 
 mod config;
+mod data;
 mod eth_utils;
 mod headers;
 mod utils;
 
+pub use data::*;
 pub use eth_utils::EthSigner;
 use headers::{create_l1_headers, create_l2_headers};
-
-#[derive(Debug, Deserialize)]
-struct ApiKeysResponse {
-    #[serde(rename = "apiKeys")]
-    api_keys: Vec<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct MidpointResponse {
-    #[serde(with = "rust_decimal::serde::str")]
-    pub mid: Decimal,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct PriceResponse {
-    #[serde(with = "rust_decimal::serde::str")]
-    pub price: Decimal,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct SpreadResponse {
-    #[serde(with = "rust_decimal::serde::str")]
-    pub spread: Decimal,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct TickSizeResponse {
-    pub minimum_tick_size: Decimal,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct NegRiskResponse {
-    pub neg_risk: bool,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, Hash, Eq, PartialEq)]
-pub enum Side {
-    BUY,
-    SELL,
-}
-
-impl Side {
-    fn as_str(&self) -> &'static str {
-        match self {
-            Side::BUY => "BUY",
-            Side::SELL => "SELL",
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct BookParams {
-    pub token_id: String,
-    pub side: Side,
-}
-
-#[derive(Default, Debug, Serialize, Deserialize)]
-pub struct ApiCreds {
-    #[serde(rename = "apiKey")]
-    api_key: String,
-    secret: String,
-    passphrase: String,
-}
 
 #[derive(Default)]
 pub struct ClobClient {
@@ -174,7 +112,7 @@ impl ClobClient {
             .http_client
             .request(method, format!("{}{endpoint}", &self.host));
 
-        headers.fold(req, |r, (k, v)| r.header(HeaderName::from_static(k), v))
+        Gheaders.fold(req, |r, (k, v)| r.header(HeaderName::from_static(k), v))
     }
 
     pub async fn get_ok(&self) -> bool {
@@ -366,5 +304,46 @@ impl ClobClient {
             .json::<NegRiskResponse>()
             .await?
             .neg_risk)
+    }
+
+    async fn resolve_tick_size(
+        &self,
+        token_id: &str,
+        tick_size: Option<Decimal>,
+    ) -> ClientResult<Decimal> {
+        let min_tick_size = self
+            .get_tick_size(token_id)
+            .await
+            .expect("Error fetching tick size");
+
+        match tick_size {
+            None => Ok(min_tick_size),
+            Some(t) => {
+                if t < min_tick_size {
+                    Err(anyhow!("Tick size {t} is smaller than min_tick_size {min_tick_size} for token_id: {token_id}"))
+                } else {
+                    Ok(t)
+                }
+            }
+        }
+    }
+
+    pub async fn create_order(&self, order_args: &OrderArgs, options: Option<&CreateOrderOptions>) {
+        let (signer, _) = self.get_l1_parameters();
+
+        let (tick_size, neg_risk) = match options {
+            Some(o) => (o.tick_size, o.neg_risk),
+            None => (None, None),
+        };
+
+        let tick_size = self
+            .resolve_tick_size(&order_args.token_id, tick_size)
+            .await
+            .unwrap();
+
+        let neg_risk = match neg_risk {
+            Some(nr) => nr,
+            None => self.get_neg_risk(&order_args.token_id).await.unwrap(),
+        };
     }
 }
