@@ -10,14 +10,23 @@ pub struct OrderArgs {
     pub price: Decimal,
     pub size: Decimal,
     pub side: Side,
-    pub extras: Option<OrderExtras>,
+}
+
+impl OrderArgs {
+    pub fn new(token_id: &str, price: Decimal, size: Decimal, side: Side) -> Self {
+        OrderArgs {
+            token_id: token_id.to_owned(),
+            price,
+            size,
+            side,
+        }
+    }
 }
 
 #[derive(Debug)]
 pub struct OrderExtras {
     pub fee_rate_bps: u32,
     pub nonce: U256,
-    pub expiration: u64,
     pub taker: String,
 }
 
@@ -26,7 +35,6 @@ impl Default for OrderExtras {
         OrderExtras {
             fee_rate_bps: 0,
             nonce: U256::ZERO,
-            expiration: 0,
             taker: ZERO_ADDRESS.into(),
         }
     }
@@ -44,7 +52,7 @@ pub struct ApiKeysResponse {
     pub api_keys: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct MidpointResponse {
     #[serde(with = "rust_decimal::serde::str")]
     pub mid: Decimal,

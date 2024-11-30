@@ -3,6 +3,8 @@ pub use alloy_primitives::U256;
 use alloy_signer_local::PrivateKeySigner;
 pub use anyhow::{anyhow, Context, Result as ClientResult};
 use config::get_contract_config;
+use orders::OrderBuilder;
+use orders::SignedOrderRequest;
 use reqwest::header::HeaderName;
 use reqwest::Client;
 use reqwest::Method;
@@ -31,6 +33,7 @@ pub struct ClobClient {
     signer: Option<Box<dyn EthSigner>>,
     chain_id: Option<u64>,
     api_creds: Option<ApiCreds>,
+    order_builder: Option<OrderBuilder>,
 }
 
 impl ClobClient {
@@ -43,28 +46,32 @@ impl ClobClient {
         }
     }
     pub fn with_l1_headers(host: &str, key: &str, chain_id: u64) -> Self {
+        let signer = Box::new(
+            key.parse::<PrivateKeySigner>()
+                .expect("Invalid private key"),
+        );
         Self {
             host: host.to_owned(),
             http_client: Client::new(),
-            signer: Some(Box::new(
-                key.parse::<PrivateKeySigner>()
-                    .expect("Invalid private key"),
-            )),
+            signer: Some(signer.clone()),
             chain_id: Some(chain_id),
             api_creds: None,
+            order_builder: Some(OrderBuilder::new(signer, None, None)),
         }
     }
 
     pub fn with_l2_headers(host: &str, key: &str, chain_id: u64, api_creds: ApiCreds) -> Self {
+        let signer = Box::new(
+            key.parse::<PrivateKeySigner>()
+                .expect("Invalid private key"),
+        );
         Self {
             host: host.to_owned(),
             http_client: Client::new(),
-            signer: Some(Box::new(
-                key.parse::<PrivateKeySigner>()
-                    .expect("Invalid private key"),
-            )),
+            signer: Some(signer.clone()),
             chain_id: Some(chain_id),
             api_creds: Some(api_creds),
+            order_builder: Some(OrderBuilder::new(signer, None, None)),
         }
     }
     pub fn set_api_creds(&mut self, api_creds: ApiCreds) {
@@ -315,7 +322,7 @@ impl ClobClient {
         let min_tick_size = self
             .get_tick_size(token_id)
             .await
-            .expect("Error fetching tick size");
+            .context("Error fetching tick size")?;
 
         match tick_size {
             None => Ok(min_tick_size),
@@ -329,8 +336,14 @@ impl ClobClient {
         }
     }
 
-    pub async fn create_order(&self, order_args: &OrderArgs, options: Option<&CreateOrderOptions>) {
-        let (signer, _) = self.get_l1_parameters();
+    pub async fn create_order(
+        &self,
+        order_args: &OrderArgs,
+        expiration: Option<u64>,
+        extras: Option<OrderExtras>,
+        options: Option<&CreateOrderOptions>,
+    ) -> ClientResult<SignedOrderRequest> {
+        let (_, chain_id) = self.get_l1_parameters();
 
         let (tick_size, neg_risk) = match options {
             Some(o) => (o.tick_size, o.neg_risk),
@@ -339,12 +352,38 @@ impl ClobClient {
 
         let tick_size = self
             .resolve_tick_size(&order_args.token_id, tick_size)
-            .await
-            .unwrap();
+            .await?;
 
         let neg_risk = match neg_risk {
             Some(nr) => nr,
-            None => self.get_neg_risk(&order_args.token_id).await.unwrap(),
+            None => self.get_neg_risk(&order_args.token_id).await?,
         };
+
+        let expiration = expiration.unwrap_or(0);
+        let extras = extras.unwrap_or_default();
+
+        let price = order_args.price;
+        let min_price = tick_size;
+        let max_price = Decimal::ONE - tick_size;
+
+        if price < min_price || price > max_price {
+            return Err(anyhow!(
+                "Price {price} is not between {min_price} and {max_price}"
+            ));
+        }
+
+        self.order_builder
+            .as_ref()
+            .expect("OrderBuilder not set")
+            .create_order(
+                chain_id,
+                order_args,
+                expiration,
+                &extras,
+                CreateOrderOptions {
+                    neg_risk: Some(neg_risk),
+                    tick_size: Some(tick_size),
+                },
+            )
     }
 }

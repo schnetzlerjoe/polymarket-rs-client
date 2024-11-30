@@ -1,15 +1,18 @@
 use alloy_primitives::Address;
 use alloy_primitives::U256;
+use anyhow::{Context, Result};
 use rand::thread_rng;
 use rand::Rng;
 use rust_decimal::Decimal;
 use rust_decimal::RoundingStrategy::{AwayFromZero, MidpointTowardZero, ToZero};
 
+use serde::{Deserialize, Serialize};
+
 use crate::config::get_contract_config;
 use crate::eth_utils::sign_order_message;
 use crate::eth_utils::Order;
 use crate::utils::get_current_unix_time_secs;
-use crate::{CreateOrderOptions, EthSigner, OrderArgs, Side};
+use crate::{CreateOrderOptions, EthSigner, OrderArgs, OrderExtras, Side};
 
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -149,59 +152,119 @@ impl OrderBuilder {
         }
     }
 
-    pub fn create_order(&self, chain_id: u64, order_args: OrderArgs, options: CreateOrderOptions) {
+    pub fn create_order(
+        &self,
+        chain_id: u64,
+        order_args: &OrderArgs,
+        expiration: u64,
+        extras: &OrderExtras,
+        options: CreateOrderOptions,
+    ) -> Result<SignedOrderRequest> {
         let (maker_amount, taker_amount) = self.get_order_amounts(
             order_args.side,
             order_args.size,
             order_args.price,
             &ROUNDING_CONFIG[&options
                 .tick_size
-                .expect("Cannot create order without tick size")],
+                .context("Cannot create order without tick size")?],
         );
 
         let contract_config = get_contract_config(
             chain_id,
             options
                 .neg_risk
-                .expect("Cannot create order without neg_risk"),
+                .context("Cannot create order without neg_risk")?,
         )
-        .expect("No contract found with given chain_id and neg_risk");
+        .context("No contract found with given chain_id and neg_risk")?;
+
+        let exchange_address = Address::from_str(contract_config.exchange.as_ref())
+            .context("Invalid exchange address")?;
+
+        self.build_signed_order(
+            order_args,
+            chain_id,
+            exchange_address,
+            maker_amount,
+            taker_amount,
+            expiration,
+            extras,
+        )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn build_signed_order(
         &self,
-        data: OrderArgs,
+        data: &OrderArgs,
         chain_id: u64,
         exchange: Address,
         maker_amount: u32,
         taker_amount: u32,
-    ) {
-        let extras = data.extras.expect("Need OrderExtras to be populated");
+        expiration: u64,
+        extras: &OrderExtras,
+    ) -> Result<SignedOrderRequest> {
+        let seed = generate_seed();
+        let taker_address =
+            Address::from_str(extras.taker.as_ref()).context("Invalid taker address")?;
+
+        let token_id =
+            U256::from_str_radix(data.token_id.as_ref(), 10).context("Incorrect tokenId format")?;
         // Does address checksum matter?
         let order = Order {
-            salt: generate_seed(),
+            salt: U256::from(seed),
             maker: self.funder,
             signer: self.signer.address(),
-            taker: Address::from_str(extras.taker.as_ref()).unwrap(),
-            tokenId: U256::from_str_radix(data.token_id.as_ref(), 10)
-                .expect("Incorrect tokenId format"),
+            taker: taker_address,
+            tokenId: token_id,
             makerAmount: U256::from(maker_amount),
             takerAmount: U256::from(taker_amount),
-            expiration: U256::from(extras.expiration),
+            expiration: U256::from(expiration),
             nonce: extras.nonce,
             feeRateBps: U256::from(extras.fee_rate_bps),
             side: data.side as u8,
             signatureType: self.sig_type as u8,
         };
 
-        let signature = sign_order_message(&self.signer, order, chain_id, exchange);
-        // TODO: Create hashmap in SignedOrder dict function
+        let signature = sign_order_message(&self.signer, order, chain_id, exchange)?;
+
+        Ok(SignedOrderRequest {
+            salt: seed,
+            maker: self.funder.to_checksum(None),
+            signer: self.signer.address().to_checksum(None),
+            taker: taker_address.to_checksum(None),
+            token_id: data.token_id.clone(),
+            maker_amount: maker_amount.to_string(),
+            taker_amount: taker_amount.to_string(),
+            expiration: expiration.to_string(),
+            nonce: extras.nonce.to_string(),
+            fee_rate_bps: extras.fee_rate_bps.to_string(),
+            side: data.side.as_str().into(),
+            signature_type: self.sig_type as u8,
+            signature,
+        })
     }
 }
 
-pub fn generate_seed() -> U256 {
+pub fn generate_seed() -> u64 {
     let mut rng = thread_rng();
     let y: f64 = rng.gen();
     let a: f64 = get_current_unix_time_secs() as f64 * y;
-    U256::from(a)
+    a as u64
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignedOrderRequest {
+    pub salt: u64,
+    pub maker: String,
+    pub signer: String,
+    pub taker: String,
+    pub token_id: String,
+    pub maker_amount: String,
+    pub taker_amount: String,
+    pub expiration: String,
+    pub nonce: String,
+    pub fee_rate_bps: String,
+    pub side: String,
+    pub signature_type: u8,
+    pub signature: String,
 }
