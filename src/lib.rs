@@ -336,40 +336,59 @@ impl ClobClient {
         }
     }
 
-    pub async fn create_order(
+    async fn get_filled_order_options(
         &self,
-        order_args: &OrderArgs,
-        expiration: Option<u64>,
-        extras: Option<OrderExtras>,
+        token_id: &str,
         options: Option<&CreateOrderOptions>,
-    ) -> ClientResult<SignedOrderRequest> {
-        let (_, chain_id) = self.get_l1_parameters();
-
+    ) -> ClientResult<CreateOrderOptions> {
         let (tick_size, neg_risk) = match options {
             Some(o) => (o.tick_size, o.neg_risk),
             None => (None, None),
         };
 
-        let tick_size = self
-            .resolve_tick_size(&order_args.token_id, tick_size)
-            .await?;
+        let tick_size = self.resolve_tick_size(token_id, tick_size).await?;
 
         let neg_risk = match neg_risk {
             Some(nr) => nr,
-            None => self.get_neg_risk(&order_args.token_id).await?,
+            None => self.get_neg_risk(token_id).await?,
         };
 
-        let expiration = expiration.unwrap_or(0);
-        let extras = extras.unwrap_or_default();
+        Ok(CreateOrderOptions {
+            neg_risk: Some(neg_risk),
+            tick_size: Some(tick_size),
+        })
+    }
 
-        let price = order_args.price;
+    fn is_price_in_range(&self, price: Decimal, tick_size: Decimal) -> bool {
         let min_price = tick_size;
         let max_price = Decimal::ONE - tick_size;
 
         if price < min_price || price > max_price {
-            return Err(anyhow!(
-                "Price {price} is not between {min_price} and {max_price}"
-            ));
+            return false;
+        }
+        true
+    }
+
+    pub async fn create_order(
+        &self,
+        order_args: &OrderArgs,
+        expiration: Option<u64>,
+        extras: Option<ExtraOrderArgs>,
+        options: Option<&CreateOrderOptions>,
+    ) -> ClientResult<SignedOrderRequest> {
+        let (_, chain_id) = self.get_l1_parameters();
+
+        let create_order_options = self
+            .get_filled_order_options(order_args.token_id.as_ref(), options)
+            .await?;
+        let expiration = expiration.unwrap_or(0);
+        let extras = extras.unwrap_or_default();
+
+        if !self.is_price_in_range(
+            order_args.price,
+            create_order_options.tick_size.expect("Should be filled"),
+        ) {
+            return Err(anyhow!("Price is not in range of tick_size"));
         }
 
         self.order_builder
@@ -380,10 +399,64 @@ impl ClobClient {
                 order_args,
                 expiration,
                 &extras,
-                CreateOrderOptions {
-                    neg_risk: Some(neg_risk),
-                    tick_size: Some(tick_size),
-                },
+                create_order_options,
             )
+    }
+
+    pub async fn get_order_book(&self, token_id: &str) -> ClientResult<OrderBookSummary> {
+        Ok(self
+            .http_client
+            .get(format!("{}/tick-size", &self.host))
+            .query(&[("token_id", token_id)])
+            .send()
+            .await?
+            .json::<OrderBookSummary>()
+            .await?)
+    }
+
+    async fn calculate_market_price(
+        &self,
+        token_id: &str,
+        side: Side,
+        amount: Decimal,
+    ) -> ClientResult<Decimal> {
+        let book = self.get_order_book(token_id).await?;
+        let ob = self
+            .order_builder
+            .as_ref()
+            .expect("No orderBuilder set for client!");
+        match side {
+            Side::BUY => ob.calculate_market_price(&book.asks, amount),
+            Side::SELL => ob.calculate_market_price(&book.bids, amount),
+        }
+    }
+
+    pub async fn create_market_order(
+        &self,
+        order_args: &MarketOrderArgs,
+        extras: Option<ExtraOrderArgs>,
+        options: Option<&CreateOrderOptions>,
+    ) -> ClientResult<SignedOrderRequest> {
+        let (_, chain_id) = self.get_l1_parameters();
+
+        let create_order_options = self
+            .get_filled_order_options(order_args.token_id.as_ref(), options)
+            .await?;
+
+        let extras = extras.unwrap_or_default();
+        let price = self
+            .calculate_market_price(&order_args.token_id, Side::BUY, order_args.amount)
+            .await?;
+        if !self.is_price_in_range(
+            price,
+            create_order_options.tick_size.expect("Should be filled"),
+        ) {
+            return Err(anyhow!("Price is not in range of tick_size"));
+        }
+
+        self.order_builder
+            .as_ref()
+            .expect("OrderBuilder not set")
+            .create_market_order(chain_id, order_args, price, &extras, create_order_options)
     }
 }

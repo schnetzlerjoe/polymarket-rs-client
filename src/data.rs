@@ -12,6 +12,27 @@ pub struct OrderArgs {
     pub side: Side,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct OrderBookSummary {
+    pub market: String,
+    pub asset_id: String,
+    pub timestamp: u64,
+    pub bids: Vec<OrderSummary>,
+    pub asks: Vec<OrderSummary>,
+}
+
+#[derive(Debug)]
+pub struct MarketOrderArgs {
+    pub token_id: String,
+    pub amount: Decimal,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OrderSummary {
+    pub price: Decimal,
+    pub size: Decimal,
+}
+
 impl OrderArgs {
     pub fn new(token_id: &str, price: Decimal, size: Decimal, side: Side) -> Self {
         OrderArgs {
@@ -24,15 +45,15 @@ impl OrderArgs {
 }
 
 #[derive(Debug)]
-pub struct OrderExtras {
+pub struct ExtraOrderArgs {
     pub fee_rate_bps: u32,
     pub nonce: U256,
     pub taker: String,
 }
 
-impl Default for OrderExtras {
-    fn default() -> OrderExtras {
-        OrderExtras {
+impl Default for ExtraOrderArgs {
+    fn default() -> Self {
+        ExtraOrderArgs {
             fee_rate_bps: 0,
             nonce: U256::ZERO,
             taker: ZERO_ADDRESS.into(),
