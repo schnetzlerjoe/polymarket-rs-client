@@ -1,8 +1,27 @@
 use crate::Decimal;
+use crate::SignedOrderRequest;
 use alloy_primitives::U256;
 use serde::{Deserialize, Serialize};
 
 const ZERO_ADDRESS: &str = "0x0000000000000000000000000000000000000000";
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PostOrder {
+    order: SignedOrderRequest,
+    owner: String,
+    order_type: OrderType,
+}
+
+impl PostOrder {
+    pub fn new(order: SignedOrderRequest, owner: String, order_type: OrderType) -> Self {
+        PostOrder {
+            order,
+            owner,
+            order_type,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct OrderArgs {
@@ -99,6 +118,23 @@ pub struct TickSizeResponse {
 #[derive(Debug, Deserialize)]
 pub struct NegRiskResponse {
     pub neg_risk: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Hash, Eq, PartialEq)]
+pub enum OrderType {
+    GTC,
+    FOK,
+    GTD,
+}
+
+impl OrderType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            OrderType::GTC => "GTC",
+            OrderType::FOK => "FOK",
+            OrderType::GTD => "GTD",
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, Hash, Eq, PartialEq)]

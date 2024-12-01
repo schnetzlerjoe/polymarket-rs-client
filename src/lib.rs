@@ -10,6 +10,7 @@ use reqwest::Client;
 use reqwest::Method;
 use reqwest::RequestBuilder;
 pub use rust_decimal::Decimal;
+use serde_json::Value;
 use std::collections::HashMap;
 
 #[cfg(test)]
@@ -177,7 +178,7 @@ impl ClobClient {
         let method = Method::GET;
         let endpoint = "/auth/api-keys";
         let (signer, creds) = self.get_l2_parameters();
-        let headers = create_l2_headers(signer, creds, method.as_str(), endpoint, None)?;
+        let headers = create_l2_headers::<Value>(signer, creds, method.as_str(), endpoint, None)?;
 
         let req = self.create_request_with_headers(method, endpoint, headers.into_iter());
 
@@ -188,7 +189,7 @@ impl ClobClient {
         let method = Method::DELETE;
         let endpoint = "/auth/api-key";
         let (signer, creds) = self.get_l2_parameters();
-        let headers = create_l2_headers(signer, creds, method.as_str(), endpoint, None)?;
+        let headers = create_l2_headers::<Value>(signer, creds, method.as_str(), endpoint, None)?;
         let req = self.create_request_with_headers(method, endpoint, headers.into_iter());
 
         Ok(req.send().await?.text().await?)
@@ -458,5 +459,41 @@ impl ClobClient {
             .as_ref()
             .expect("OrderBuilder not set")
             .create_market_order(chain_id, order_args, price, &extras, create_order_options)
+    }
+
+    pub async fn post_order(
+        &self,
+        order: SignedOrderRequest,
+        order_type: OrderType,
+    ) -> ClientResult<Value> {
+        let (signer, creds) = self.get_l2_parameters();
+        let body = PostOrder::new(order, creds.api_key.clone(), order_type);
+
+        let method = Method::POST;
+        let endpoint = "/order";
+
+        let headers = create_l2_headers(signer, creds, method.as_str(), endpoint, Some(&body))?;
+
+        let req = self.create_request_with_headers(method, endpoint, headers.into_iter());
+
+        Ok(req.json(&body).send().await?.json::<Value>().await?)
+    }
+
+    // create_and_post_order
+    //
+    // return type
+    pub async fn cancel(&self, order_id: &str) -> ClientResult<bool> {
+        let (signer, creds) = self.get_l2_parameters();
+        let body = HashMap::from([("orderID", order_id)]);
+
+        let method = Method::DELETE;
+        let endpoint = "/orders";
+
+        let headers = create_l2_headers(signer, creds, method.as_str(), endpoint, Some(&body))?;
+
+        let req = self.create_request_with_headers(method, endpoint, headers.into_iter());
+        req.json(&body).send().await?;
+
+        Ok(false)
     }
 }

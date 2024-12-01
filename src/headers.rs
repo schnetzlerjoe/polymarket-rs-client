@@ -4,6 +4,7 @@ use crate::ApiCreds;
 use alloy_primitives::hex::encode_prefixed;
 use alloy_primitives::U256;
 use anyhow::Result;
+use serde::Serialize;
 use std::collections::HashMap;
 
 const POLY_ADDR_HEADER: &str = "poly_address";
@@ -30,13 +31,16 @@ pub fn create_l1_headers(signer: &impl EthSigner, nonce: Option<U256>) -> Result
     ]))
 }
 
-pub fn create_l2_headers(
+pub fn create_l2_headers<T>(
     signer: &impl EthSigner,
     api_creds: &ApiCreds,
     method: &str,
     req_path: &str,
-    body: Option<&str>,
-) -> Result<Headers> {
+    body: Option<&T>,
+) -> Result<Headers>
+where
+    T: ?Sized + Serialize,
+{
     let address = encode_prefixed(signer.address().as_slice());
     let timestamp = get_current_unix_time_secs();
 
