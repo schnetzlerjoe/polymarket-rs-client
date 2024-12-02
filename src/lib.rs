@@ -10,7 +10,7 @@ use reqwest::Client;
 use reqwest::Method;
 use reqwest::RequestBuilder;
 pub use rust_decimal::Decimal;
-use serde_json::Value;
+pub use serde_json::Value;
 use std::collections::HashMap;
 
 #[cfg(test)]
@@ -407,11 +407,30 @@ impl ClobClient {
     pub async fn get_order_book(&self, token_id: &str) -> ClientResult<OrderBookSummary> {
         Ok(self
             .http_client
-            .get(format!("{}/tick-size", &self.host))
+            .get(format!("{}/book", &self.host))
             .query(&[("token_id", token_id)])
             .send()
             .await?
             .json::<OrderBookSummary>()
+            .await?)
+    }
+
+    pub async fn get_order_books(
+        &self,
+        token_ids: &[String],
+    ) -> ClientResult<Vec<OrderBookSummary>> {
+        let v = token_ids
+            .iter()
+            .map(|b| HashMap::from([("token_id", b.clone())]))
+            .collect::<Vec<HashMap<&str, String>>>();
+
+        Ok(self
+            .http_client
+            .post(format!("{}/books", &self.host))
+            .json(&v)
+            .send()
+            .await?
+            .json::<Vec<OrderBookSummary>>()
             .await?)
     }
 
@@ -479,21 +498,153 @@ impl ClobClient {
         Ok(req.json(&body).send().await?.json::<Value>().await?)
     }
 
-    // create_and_post_order
-    //
-    // return type
-    pub async fn cancel(&self, order_id: &str) -> ClientResult<bool> {
+    pub async fn create_and_post_order(&self, order_args: &OrderArgs) -> ClientResult<Value> {
+        let order = self.create_order(order_args, None, None, None).await?;
+        self.post_order(order, OrderType::GTC).await
+    }
+
+    pub async fn cancel(&self, order_id: &str) -> ClientResult<Value> {
         let (signer, creds) = self.get_l2_parameters();
         let body = HashMap::from([("orderID", order_id)]);
 
         let method = Method::DELETE;
-        let endpoint = "/orders";
+        let endpoint = "/order";
 
         let headers = create_l2_headers(signer, creds, method.as_str(), endpoint, Some(&body))?;
 
         let req = self.create_request_with_headers(method, endpoint, headers.into_iter());
-        req.json(&body).send().await?;
 
-        Ok(false)
+        Ok(req.json(&body).send().await?.json::<Value>().await?)
+    }
+
+    pub async fn cancel_orders(&self, order_ids: &[String]) -> ClientResult<Value> {
+        let (signer, creds) = self.get_l2_parameters();
+        let method = Method::DELETE;
+        let endpoint = "/orders";
+
+        let headers = create_l2_headers(signer, creds, method.as_str(), endpoint, Some(order_ids))?;
+
+        let req = self.create_request_with_headers(method, endpoint, headers.into_iter());
+
+        Ok(req.json(order_ids).send().await?.json::<Value>().await?)
+    }
+
+    pub async fn cancel_all(&self) -> ClientResult<Value> {
+        let (signer, creds) = self.get_l2_parameters();
+        let method = Method::DELETE;
+        let endpoint = "/cancel-all";
+
+        let headers = create_l2_headers::<Value>(signer, creds, method.as_str(), endpoint, None)?;
+
+        let req = self.create_request_with_headers(method, endpoint, headers.into_iter());
+
+        Ok(req.send().await?.json::<Value>().await?)
+    }
+
+    pub async fn cancel_market_orders(
+        &self,
+        market: Option<&str>,
+        asset_id: Option<&str>,
+    ) -> ClientResult<Value> {
+        let (signer, creds) = self.get_l2_parameters();
+        let method = Method::DELETE;
+        let endpoint = "/cancel-market-orders";
+        let body = HashMap::from([
+            ("market", market.unwrap_or("")),
+            ("asset_id", asset_id.unwrap_or("")),
+        ]);
+
+        let headers = create_l2_headers(signer, creds, method.as_str(), endpoint, Some(&body))?;
+
+        let req = self.create_request_with_headers(method, endpoint, headers.into_iter());
+
+        Ok(req.json(&body).send().await?.json::<Value>().await?)
+    }
+
+    pub async fn get_orders(
+        &self,
+        params: Option<&OpenOrderParams>,
+        next_cursor: Option<&str>,
+    ) -> ClientResult<Vec<OpenOrder>> {
+        let (signer, creds) = self.get_l2_parameters();
+        let method = Method::GET;
+        let endpoint = "/data/orders";
+        let headers = create_l2_headers::<Value>(signer, creds, method.as_str(), endpoint, None)?;
+
+        let query_params = match params {
+            None => Vec::new(),
+            Some(p) => p.to_query_params(),
+        };
+
+        const INITIAL_CURSOR: &str = "MA==";
+        const END_CURSOR: &str = "LTE=";
+
+        let mut next_cursor = next_cursor.unwrap_or(INITIAL_CURSOR).to_string();
+        let mut output = Vec::new();
+        while next_cursor != END_CURSOR {
+            let req = self
+                .http_client
+                .request(method.clone(), format!("{}{endpoint}", &self.host))
+                .query(&query_params)
+                .query(&["next_cursor", &next_cursor]);
+
+            let r = headers
+                .clone()
+                .into_iter()
+                .fold(req, |r, (k, v)| r.header(HeaderName::from_static(k), v));
+
+            let resp = r.send().await?.json::<Value>().await?;
+            let new_cursor = resp["next_cursor"]
+                .as_str()
+                .expect("Failed to parse next cursor")
+                .to_owned();
+
+            next_cursor = new_cursor;
+
+            let results = resp["data"].clone();
+            let o = serde_json::from_value::<Vec<OpenOrder>>(results)
+                .expect("Failed to parse data from order response");
+            output.extend(o);
+        }
+        Ok(output)
+    }
+
+    pub async fn get_order(&self, order_id: &str) -> ClientResult<OpenOrder> {
+        let (signer, creds) = self.get_l2_parameters();
+        let method = Method::GET;
+        let endpoint = &format!("/data/order/{order_id}");
+
+        let headers = create_l2_headers::<Value>(signer, creds, method.as_str(), endpoint, None)?;
+
+        let req = self.create_request_with_headers(method, endpoint, headers.into_iter());
+
+        Ok(req.send().await?.json::<OpenOrder>().await?)
+    }
+
+    pub async fn get_last_trade_price(&self, token_id: &str) -> ClientResult<Value> {
+        Ok(self
+            .http_client
+            .get(format!("{}/last-trade-price", &self.host))
+            .query(&[("token_id", token_id)])
+            .send()
+            .await?
+            .json::<Value>()
+            .await?)
+    }
+
+    pub async fn get_last_trade_prices(&self, token_ids: &[String]) -> ClientResult<Value> {
+        let v = token_ids
+            .iter()
+            .map(|b| HashMap::from([("token_id", b.clone())]))
+            .collect::<Vec<HashMap<&str, String>>>();
+
+        Ok(self
+            .http_client
+            .post(format!("{}/last-trades-prices", &self.host))
+            .json(&v)
+            .send()
+            .await?
+            .json::<Value>()
+            .await?)
     }
 }

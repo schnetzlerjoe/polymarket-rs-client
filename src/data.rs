@@ -1,9 +1,86 @@
 use crate::Decimal;
+
 use crate::SignedOrderRequest;
 use alloy_primitives::U256;
-use serde::{Deserialize, Serialize};
+use anyhow::{Context, Result};
+use serde::{Deserialize, Deserializer, Serialize};
+use std::fmt::Display;
+use std::str::FromStr;
 
 const ZERO_ADDRESS: &str = "0x0000000000000000000000000000000000000000";
+
+#[derive(Debug, Deserialize)]
+pub struct OpenOrder {
+    pub associate_trades: Vec<String>,
+    pub id: String,
+    pub status: String,
+    pub market: String,
+
+    #[serde(with = "rust_decimal::serde::str")]
+    pub original_size: Decimal,
+    pub outcome: String,
+    pub maker_address: String,
+    pub owner: String,
+
+    #[serde(with = "rust_decimal::serde::str")]
+    pub price: Decimal,
+    pub side: Side,
+
+    #[serde(with = "rust_decimal::serde::str")]
+    pub size_matched: Decimal,
+    pub asset_id: String,
+    #[serde(deserialize_with = "deserialize_number_from_string")]
+    pub expiration: u64,
+    #[serde(rename = "type")]
+    pub order_type: OrderType,
+    #[serde(deserialize_with = "deserialize_number_from_string")]
+    pub created_at: u64,
+}
+
+#[derive(Debug)]
+pub struct OpenOrderParams {
+    pub id: Option<String>,
+    pub asset_id: Option<String>,
+    pub market: Option<String>,
+}
+
+impl OpenOrderParams {
+    pub fn to_query_params(&self) -> Vec<(&str, &String)> {
+        let mut params = Vec::with_capacity(4);
+
+        if let Some(x) = &self.id {
+            params.push(("id", x));
+        }
+
+        if let Some(x) = &self.asset_id {
+            params.push(("asset_id", x));
+        }
+
+        if let Some(x) = &self.market {
+            params.push(("market", x));
+        }
+        params
+    }
+}
+
+fn deserialize_number_from_string<'de, T, D>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: FromStr + serde::Deserialize<'de>,
+    <T as FromStr>::Err: Display,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrInt<T> {
+        String(String),
+        Number(T),
+    }
+
+    match StringOrInt::<T>::deserialize(deserializer)? {
+        StringOrInt::String(s) => s.parse::<T>().map_err(serde::de::Error::custom),
+        StringOrInt::Number(i) => Ok(i),
+    }
+}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -35,6 +112,8 @@ pub struct OrderArgs {
 pub struct OrderBookSummary {
     pub market: String,
     pub asset_id: String,
+    pub hash: String,
+    #[serde(deserialize_with = "deserialize_number_from_string")]
     pub timestamp: u64,
     pub bids: Vec<OrderSummary>,
     pub asks: Vec<OrderSummary>,
@@ -48,7 +127,9 @@ pub struct MarketOrderArgs {
 
 #[derive(Debug, Deserialize)]
 pub struct OrderSummary {
+    #[serde(with = "rust_decimal::serde::str")]
     pub price: Decimal,
+    #[serde(with = "rust_decimal::serde::str")]
     pub size: Decimal,
 }
 
