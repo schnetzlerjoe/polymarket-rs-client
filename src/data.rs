@@ -1,13 +1,95 @@
+use crate::orders::SigType;
 use crate::Decimal;
 
 use crate::SignedOrderRequest;
 use alloy_primitives::U256;
-use anyhow::{Context, Result};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt::Display;
 use std::str::FromStr;
 
 const ZERO_ADDRESS: &str = "0x0000000000000000000000000000000000000000";
+
+pub enum AssetType {
+    COLLATERAL,
+    CONDITIONAL,
+}
+
+#[allow(clippy::to_string_trait_impl)]
+impl ToString for AssetType {
+    fn to_string(&self) -> String {
+        match self {
+            AssetType::COLLATERAL => "COLLATERAL".to_string(),
+            AssetType::CONDITIONAL => "CONDITIONAL".to_string(),
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct BalanceAllowanceParams {
+    pub asset_type: Option<AssetType>,
+    pub token_id: Option<String>,
+    pub signature_type: Option<u8>,
+}
+
+impl BalanceAllowanceParams {
+    pub fn to_query_params(&self) -> Vec<(&str, String)> {
+        let mut params = Vec::with_capacity(3);
+
+        if let Some(x) = &self.asset_type {
+            params.push(("asset_type", x.to_string()));
+        }
+
+        if let Some(x) = &self.token_id {
+            params.push(("token_id", x.to_string()));
+        }
+
+        if let Some(x) = &self.signature_type {
+            params.push(("signature_type", x.to_string()));
+        }
+        params
+    }
+}
+
+impl BalanceAllowanceParams {
+    pub fn set_signature_type(&mut self, s: u8) {
+        self.signature_type = Some(s);
+    }
+}
+
+#[derive(Debug)]
+pub struct TradeParams {
+    pub id: Option<String>,
+    pub maker_address: Option<String>,
+    pub market: Option<String>,
+    pub asset_id: Option<String>,
+    pub before: Option<u64>,
+    pub after: Option<u64>,
+}
+
+impl TradeParams {
+    pub fn to_query_params(&self) -> Vec<(&str, String)> {
+        let mut params = Vec::with_capacity(4);
+
+        if let Some(x) = &self.id {
+            params.push(("id", x.clone()));
+        }
+
+        if let Some(x) = &self.asset_id {
+            params.push(("asset_id", x.clone()));
+        }
+
+        if let Some(x) = &self.market {
+            params.push(("market", x.clone()));
+        }
+        if let Some(x) = &self.before {
+            params.push(("before", x.to_string()));
+        }
+        if let Some(x) = &self.after {
+            params.push(("after", x.to_string()));
+        }
+        params
+    }
+}
 
 #[derive(Debug, Deserialize)]
 pub struct OpenOrder {

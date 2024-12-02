@@ -129,6 +129,10 @@ impl OrderBuilder {
         }
     }
 
+    pub fn get_sig_type(&self) -> u8 {
+        self.sig_type as u8
+    }
+
     fn fix_amount_rounding(&self, mut amt: Decimal, round_config: &RoundConfig) -> Decimal {
         if amt.scale() > round_config.amount {
             amt = amt.round_dp_with_strategy(round_config.amount + 4, AwayFromZero);

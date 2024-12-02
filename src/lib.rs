@@ -37,6 +37,9 @@ pub struct ClobClient {
     order_builder: Option<OrderBuilder>,
 }
 
+const INITIAL_CURSOR: &str = "MA==";
+const END_CURSOR: &str = "LTE=";
+
 impl ClobClient {
     // TODO: initial headers, gzip
     pub fn new(host: &str) -> Self {
@@ -576,9 +579,6 @@ impl ClobClient {
             Some(p) => p.to_query_params(),
         };
 
-        const INITIAL_CURSOR: &str = "MA==";
-        const END_CURSOR: &str = "LTE=";
-
         let mut next_cursor = next_cursor.unwrap_or(INITIAL_CURSOR).to_string();
         let mut output = Vec::new();
         while next_cursor != END_CURSOR {
@@ -642,6 +642,269 @@ impl ClobClient {
             .http_client
             .post(format!("{}/last-trades-prices", &self.host))
             .json(&v)
+            .send()
+            .await?
+            .json::<Value>()
+            .await?)
+    }
+
+    pub async fn get_trades(
+        &self,
+        trade_params: Option<&TradeParams>,
+        next_cursor: Option<&str>,
+    ) -> ClientResult<Vec<Value>> {
+        let (signer, creds) = self.get_l2_parameters();
+        let method = Method::GET;
+        let endpoint = "/data/trades";
+        let headers = create_l2_headers::<Value>(signer, creds, method.as_str(), endpoint, None)?;
+
+        let query_params = match trade_params {
+            None => Vec::new(),
+            Some(p) => p.to_query_params(),
+        };
+
+        let mut next_cursor = next_cursor.unwrap_or(INITIAL_CURSOR).to_string();
+
+        let mut output = Vec::new();
+        while next_cursor != END_CURSOR {
+            let req = self
+                .http_client
+                .request(method.clone(), format!("{}{endpoint}", &self.host))
+                .query(&query_params)
+                .query(&["next_cursor", &next_cursor]);
+
+            let r = headers
+                .clone()
+                .into_iter()
+                .fold(req, |r, (k, v)| r.header(HeaderName::from_static(k), v));
+
+            let resp = r.send().await?.json::<Value>().await?;
+            let new_cursor = resp["next_cursor"]
+                .as_str()
+                .expect("Failed to parse next cursor")
+                .to_owned();
+
+            next_cursor = new_cursor;
+
+            let results = resp["data"].clone();
+            output.push(results);
+        }
+        Ok(output)
+    }
+
+    pub async fn get_notifications(&self) -> ClientResult<Value> {
+        let (signer, creds) = self.get_l2_parameters();
+
+        let method = Method::GET;
+        let endpoint = "/notifications";
+        let headers = create_l2_headers::<Value>(signer, creds, method.as_str(), endpoint, None)?;
+
+        let req = self.create_request_with_headers(method, endpoint, headers.into_iter());
+
+        Ok(req
+            .query(&[(
+                "signature_type",
+                &self
+                    .order_builder
+                    .as_ref()
+                    .expect("Orderbuilder not set")
+                    .get_sig_type(),
+            )])
+            .send()
+            .await?
+            .json::<Value>()
+            .await?)
+    }
+
+    pub async fn drop_notifications(&self, ids: &[String]) -> ClientResult<Value> {
+        let (signer, creds) = self.get_l2_parameters();
+
+        let method = Method::DELETE;
+        let endpoint = "/notifications";
+        let headers = create_l2_headers::<Value>(signer, creds, method.as_str(), endpoint, None)?;
+
+        let req = self.create_request_with_headers(method, endpoint, headers.into_iter());
+
+        Ok(req
+            .query(&[("ids", ids.join(","))])
+            .send()
+            .await?
+            .json::<Value>()
+            .await?)
+    }
+
+    pub async fn get_balance_allowance(
+        &self,
+        params: Option<BalanceAllowanceParams>,
+    ) -> ClientResult<Value> {
+        let mut params = params.unwrap_or_default();
+        if params.signature_type.is_none() {
+            params.set_signature_type(
+                self.order_builder
+                    .as_ref()
+                    .expect("Orderbuilder not set")
+                    .get_sig_type(),
+            )
+        }
+
+        let query_params = params.to_query_params();
+
+        let (signer, creds) = self.get_l2_parameters();
+
+        let method = Method::GET;
+        let endpoint = "/balance-allowance";
+        let headers = create_l2_headers::<Value>(signer, creds, method.as_str(), endpoint, None)?;
+
+        let req = self.create_request_with_headers(method, endpoint, headers.into_iter());
+        Ok(req
+            .query(&query_params)
+            .send()
+            .await?
+            .json::<Value>()
+            .await?)
+    }
+
+    pub async fn update_balance_allowance(
+        &self,
+        params: Option<BalanceAllowanceParams>,
+    ) -> ClientResult<Value> {
+        let mut params = params.unwrap_or_default();
+        if params.signature_type.is_none() {
+            params.set_signature_type(
+                self.order_builder
+                    .as_ref()
+                    .expect("Orderbuilder not set")
+                    .get_sig_type(),
+            )
+        }
+
+        let query_params = params.to_query_params();
+
+        let (signer, creds) = self.get_l2_parameters();
+
+        let method = Method::GET;
+        let endpoint = "/balance-allowance/update";
+        let headers = create_l2_headers::<Value>(signer, creds, method.as_str(), endpoint, None)?;
+
+        let req = self.create_request_with_headers(method, endpoint, headers.into_iter());
+        Ok(req
+            .query(&query_params)
+            .send()
+            .await?
+            .json::<Value>()
+            .await?)
+    }
+
+    pub async fn is_order_scoring(&self, order_id: &str) -> ClientResult<bool> {
+        let (signer, creds) = self.get_l2_parameters();
+
+        let method = Method::GET;
+        let endpoint = "/order-scoring";
+        let headers = create_l2_headers::<Value>(signer, creds, method.as_str(), endpoint, None)?;
+        let req = self.create_request_with_headers(method, endpoint, headers.into_iter());
+
+        Ok(req
+            .query(&[("order_id", order_id)])
+            .send()
+            .await?
+            .json::<Value>()
+            .await?["scoring"]
+            .as_bool()
+            .expect("Unknown scoring value"))
+    }
+
+    pub async fn are_orders_scoring(
+        &self,
+        order_ids: &[&str],
+    ) -> ClientResult<HashMap<String, bool>> {
+        let (signer, creds) = self.get_l2_parameters();
+
+        let method = Method::POST;
+        let endpoint = "/orders-scoring";
+
+        let headers = create_l2_headers(signer, creds, method.as_str(), endpoint, Some(order_ids))?;
+        let req = self.create_request_with_headers(method, endpoint, headers.into_iter());
+
+        Ok(req
+            .json(order_ids)
+            .send()
+            .await?
+            .json::<HashMap<String, bool>>()
+            .await?)
+    }
+
+    pub async fn get_sampling_markets(&self, next_cursor: Option<&str>) -> ClientResult<Value> {
+        let next_cursor = next_cursor.unwrap_or(INITIAL_CURSOR);
+
+        Ok(self
+            .http_client
+            .get(format!("{}/sampling-markets", &self.host))
+            .query(&[("next_cursor", next_cursor)])
+            .send()
+            .await?
+            .json::<Value>()
+            .await?)
+    }
+
+    pub async fn get_sampling_simplified_markets(
+        &self,
+        next_cursor: Option<&str>,
+    ) -> ClientResult<Value> {
+        let next_cursor = next_cursor.unwrap_or(INITIAL_CURSOR);
+
+        Ok(self
+            .http_client
+            .get(format!("{}/sampling-simplified-markets", &self.host))
+            .query(&[("next_cursor", next_cursor)])
+            .send()
+            .await?
+            .json::<Value>()
+            .await?)
+    }
+
+    pub async fn get_markets(&self, next_cursor: Option<&str>) -> ClientResult<Value> {
+        let next_cursor = next_cursor.unwrap_or(INITIAL_CURSOR);
+
+        Ok(self
+            .http_client
+            .get(format!("{}/markets", &self.host))
+            .query(&[("next_cursor", next_cursor)])
+            .send()
+            .await?
+            .json::<Value>()
+            .await?)
+    }
+
+    pub async fn get_simplified_markets(&self, next_cursor: Option<&str>) -> ClientResult<Value> {
+        let next_cursor = next_cursor.unwrap_or(INITIAL_CURSOR);
+
+        Ok(self
+            .http_client
+            .get(format!("{}/simplified-markets", &self.host))
+            .query(&[("next_cursor", next_cursor)])
+            .send()
+            .await?
+            .json::<Value>()
+            .await?)
+    }
+
+    pub async fn get_market(&self, condition_id: &str) -> ClientResult<Value> {
+        Ok(self
+            .http_client
+            .get(format!("{}/markets/{condition_id}", &self.host))
+            .send()
+            .await?
+            .json::<Value>()
+            .await?)
+    }
+
+    pub async fn get_market_trades_events(&self, condition_id: &str) -> ClientResult<Value> {
+        Ok(self
+            .http_client
+            .get(format!(
+                "{}/live-activity/events/{condition_id}",
+                &self.host
+            ))
             .send()
             .await?
             .json::<Value>()
