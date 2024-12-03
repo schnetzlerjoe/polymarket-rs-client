@@ -1,5 +1,9 @@
 [package]
 name = "polymarket-rs-client"
+description = "An async client to interact with polymarket."
+repository = "https://github.com/TechieBoy/polymarket-rs-client"
+readme = "README.md"
+license = "Apache-2.0"
 version = "0.1.0"
 edition = "2021"
 

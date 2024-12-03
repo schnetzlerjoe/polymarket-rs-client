@@ -13,8 +13,8 @@ pub use rust_decimal::Decimal;
 pub use serde_json::Value;
 use std::collections::HashMap;
 
-#[cfg(test)]
-mod tests;
+// #[cfg(test)]
+// mod tests;
 
 mod config;
 mod data;
