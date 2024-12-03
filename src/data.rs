@@ -1,4 +1,3 @@
-use crate::orders::SigType;
 use crate::Decimal;
 
 use crate::SignedOrderRequest;

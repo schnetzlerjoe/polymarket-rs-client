@@ -7,7 +7,7 @@ use rand::Rng;
 use rust_decimal::Decimal;
 use rust_decimal::RoundingStrategy::{AwayFromZero, MidpointTowardZero, ToZero};
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::config::get_contract_config;
 use crate::eth_utils::sign_order_message;
