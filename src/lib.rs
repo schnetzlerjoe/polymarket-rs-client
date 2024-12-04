@@ -9,7 +9,7 @@ use reqwest::header::HeaderName;
 use reqwest::Client;
 use reqwest::Method;
 use reqwest::RequestBuilder;
-pub use rust_decimal::Decimal;
+use rust_decimal::Decimal;
 pub use serde_json::Value;
 use std::collections::HashMap;
 
