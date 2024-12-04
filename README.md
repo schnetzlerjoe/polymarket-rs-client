@@ -5,7 +5,20 @@
 [Docs Badge]: https://docs.rs/polymarket-rs-client/badge.svg
 [docs]: https://docs.rs/polymarket-rs-client
 
-An async rust client for interacting with Polymarket.
+An async rust client for interacting with [Polymarket](https://polymarket.com/).
+
+## Why use this instead of the official client?
+
+1. You get to write Rust!
+2. Most calls are anywhere from 1.5x to upto 4x faster.
+3. Upto 10x less memory usage.
+
+Some benchmarks on my machine:
+| | polymarket-rs-client | Official Python client |
+|-------------------------------------------|-------------------------------------------------------------|------------------------------------------------------------|
+| Create a order with EIP-712 signature. | **266.5 ms ± 28.6 ms** | 1.127 s ± 0.047 s |
+| Fetch and parse json(simplified markets). | **404.5 ms ± 22.9 ms** | 1.366 s ± 0.048 s |
+| Fetch markets. Mem usage | **88,053 allocs, 81,823 frees, 15,945,966 bytes allocated** | 211,898 allocs, 202,962 frees, 128,457,588 bytes allocated |
 
 ## Installing
 
@@ -20,7 +33,7 @@ cargo add -F rt-multi-thread,macros tokio
 
 ```
 
-For representing order amounts and sizes, the client uses `rust-decimal` crate. It is recommmended to install this crate as well.
+For representing order amounts and sizes, the client uses the `rust-decimal` crate. It is recommended to install this crate as well.
 
 ```sh
 cargo add rust-decimal
@@ -53,7 +66,3 @@ async fn main() {
 ```
 
 The `ClobClient` implements the same API as the [official python client](https://github.com/Polymarket/py-clob-client). All available functions are listed in the [docs](https://docs.rs/polymarket-rs-client/latest/polymarket_rs_client/struct.ClobClient.html).
-
-## Benchmarks
-
-TODO
