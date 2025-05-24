@@ -7,6 +7,9 @@
 
 An async rust client for interacting with [Polymarket](https://polymarket.com/).
 
+> [!NOTE]
+> This code is still in active developement and alpha quality. Use at your own risk.
+
 ## Why use this instead of the official client?
 
 1. You get to write Rust!
