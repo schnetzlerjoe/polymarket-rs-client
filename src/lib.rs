@@ -544,7 +544,20 @@ impl ClobClient {
 
         let req = self.create_request_with_headers(method, endpoint, headers.into_iter());
 
-        Ok(req.json(&body).send().await?.json::<Value>().await?)
+        let response = req.json(&body).send().await?;
+        let status = response.status();
+        let response_text = response.text().await?;
+
+        if !status.is_success() {
+            eprintln!("Polymarket API error (status {}): {}", status, response_text);
+            return Err(anyhow!("API returned error {}: {}", status, response_text));
+        }
+
+        serde_json::from_str(&response_text)
+            .map_err(|e| {
+                eprintln!("Failed to parse response as JSON: {}", response_text);
+                anyhow!("JSON parse error: {}. Response was: {}", e, response_text)
+            })
     }
 
     pub async fn create_and_post_order(&self, order_args: &OrderArgs) -> ClientResult<Value> {
