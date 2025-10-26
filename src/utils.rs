@@ -1,7 +1,6 @@
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose::URL_SAFE, Engine};
 use serde::Serialize;
-use serde_json_fmt::JsonFormat;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use hmac::{Hmac, Mac};
