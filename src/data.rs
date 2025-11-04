@@ -93,30 +93,31 @@ impl TradeParams {
 
 #[derive(Debug, Deserialize)]
 pub struct OpenOrder {
+    #[serde(default)]
     pub associate_trades: Vec<String>,
     pub id: String,
     pub status: String,
-    pub market: String,
+    pub market: Option<String>,
 
-    #[serde(with = "rust_decimal::serde::str")]
-    pub original_size: Decimal,
-    pub outcome: String,
-    pub maker_address: String,
-    pub owner: String,
+    #[serde(default, with = "rust_decimal::serde::str_option")]
+    pub original_size: Option<Decimal>,
+    pub outcome: Option<String>,
+    pub maker_address: Option<String>,
+    pub owner: Option<String>,
 
-    #[serde(with = "rust_decimal::serde::str")]
-    pub price: Decimal,
-    pub side: Side,
+    #[serde(default, with = "rust_decimal::serde::str_option")]
+    pub price: Option<Decimal>,
+    pub side: Option<Side>,
 
-    #[serde(with = "rust_decimal::serde::str")]
-    pub size_matched: Decimal,
-    pub asset_id: String,
-    #[serde(deserialize_with = "deserialize_number_from_string")]
-    pub expiration: u64,
+    #[serde(default, with = "rust_decimal::serde::str_option")]
+    pub size_matched: Option<Decimal>,
+    pub asset_id: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_number_from_string")]
+    pub expiration: Option<u64>,
     #[serde(rename = "type")]
-    pub order_type: OrderType,
-    #[serde(deserialize_with = "deserialize_number_from_string")]
-    pub created_at: u64,
+    pub order_type: Option<OrderType>,
+    #[serde(default, deserialize_with = "deserialize_optional_number_from_string")]
+    pub created_at: Option<u64>,
 }
 
 #[derive(Debug)]
@@ -161,6 +162,33 @@ where
     match StringOrInt::<T>::deserialize(deserializer)? {
         StringOrInt::String(s) => s.parse::<T>().map_err(serde::de::Error::custom),
         StringOrInt::Number(i) => Ok(i),
+    }
+}
+
+fn deserialize_optional_number_from_string<'de, T, D>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: FromStr + serde::Deserialize<'de>,
+    <T as FromStr>::Err: Display,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrInt<T> {
+        String(String),
+        Number(T),
+        Null,
+    }
+
+    match StringOrInt::<T>::deserialize(deserializer)? {
+        StringOrInt::String(s) => {
+            if s.is_empty() {
+                Ok(None)
+            } else {
+                s.parse::<T>().map(Some).map_err(serde::de::Error::custom)
+            }
+        }
+        StringOrInt::Number(i) => Ok(Some(i)),
+        StringOrInt::Null => Ok(None),
     }
 }
 
