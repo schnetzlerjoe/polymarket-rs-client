@@ -668,7 +668,7 @@ impl ClobClient {
         Ok(output)
     }
 
-    pub async fn get_order(&self, order_id: &str) -> ClientResult<OpenOrder> {
+    pub async fn get_order(&self, order_id: &str) -> ClientResult<Option<OpenOrder>> {
         let (signer, creds) = self.get_l2_parameters();
         let method = Method::GET;
         let endpoint = &format!("/data/order/{order_id}");
@@ -677,7 +677,8 @@ impl ClobClient {
 
         let req = self.create_request_with_headers(method, endpoint, headers.into_iter());
 
-        Ok(req.send().await?.json::<OpenOrder>().await?)
+        // API returns null for non-existent orders, so use Option<OpenOrder>
+        Ok(req.send().await?.json::<Option<OpenOrder>>().await?)
     }
 
     pub async fn get_last_trade_price(&self, token_id: &str) -> ClientResult<Value> {
