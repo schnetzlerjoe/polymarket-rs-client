@@ -351,6 +351,34 @@ impl ClobClient {
             .await?
             .minimum_tick_size)
     }
+    /// Query the fee rate (in basis points) for a given token ID.
+    /// Fee-enabled markets return a non-zero value; fee-free markets return 0.
+    /// The API returns {"base_fee": 1000} for sports markets.
+    pub async fn get_fee_rate_bps(&self, token_id: &str) -> ClientResult<u32> {
+        let response = self
+            .http_client
+            .get(format!("{}/fee-rate", &self.host))
+            .query(&[("token_id", token_id)])
+            .send()
+            .await?
+            .json::<Value>()
+            .await?;
+
+        // The API returns {"base_fee": 1000} for fee-enabled markets
+        let fee_rate = response
+            .get("base_fee")
+            .or_else(|| response.get("fee_rate_bps"))
+            .or_else(|| response.get("feeRateBps"))
+            .and_then(|v| {
+                v.as_u64()
+                    .map(|n| n as u32)
+                    .or_else(|| v.as_str().and_then(|s| s.parse::<u32>().ok()))
+            })
+            .context(format!("No fee rate found in API response: {}", response))?;
+
+        Ok(fee_rate)
+    }
+
     // Cache
     pub async fn get_neg_risk(&self, token_id: &str) -> ClientResult<bool> {
         Ok(self
